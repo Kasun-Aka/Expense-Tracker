@@ -1,5 +1,6 @@
 #Expense Tracker System
 
-'''bash
+```bash
 Under Develepment 🚧👨‍💻
-'''
+```
+
