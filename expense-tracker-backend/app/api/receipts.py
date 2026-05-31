@@ -1,34 +1,38 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Depends
+from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
-import uuid
+
+from app.services.ocr import extract_text_from_image
+from app.services.parser import parse_receipt_text
+from app.db.database import get_db
+from app.db.receipt import Receipt as DBReceipt
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
 
 UPLOAD_DIR = Path("uploads/receipts")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.post("/upload")
-def upload_receipt(file: UploadFile = File(...)):
-    # 1. Validate content type
-    if file.content_type not in ["image/jpeg", "image/png"]:
-        raise HTTPException(status_code=400, detail="Only JPG or PNG images are allowed")
+async def upload_receipt(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    file_path = UPLOAD_DIR / file.filename
 
-    # 2. Ensure upload directory exists
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-    # 3. Generate safe unique filename
-    file_ext = Path(file.filename).suffix
-    unique_name = f"{uuid.uuid4()}{file_ext}"
-    file_path = UPLOAD_DIR / unique_name
-
-    # 4. Save file
-    with file_path.open("wb") as buffer:
+    with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # 5. Respond
+    extracted_text = extract_text_from_image(file_path)
+    
+    # Save receipt to DB
+    new_receipt = DBReceipt(filename=file.filename, ocr_text=extracted_text)
+    db.add(new_receipt)
+    db.commit()
+    db.refresh(new_receipt)
+    
+    parsed_data = parse_receipt_text(extracted_text)
+
     return {
-        "original_filename": file.filename,
-        "stored_filename": unique_name,
-        "content_type": file.content_type,
-        "path": str(file_path)
+        "receipt_id": new_receipt.id,
+        "filename": new_receipt.filename,
+        "extracted_text": extracted_text,
+        "parsed_data": parsed_data
     }
