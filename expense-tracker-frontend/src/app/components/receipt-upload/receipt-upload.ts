@@ -1,8 +1,11 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
+
+const MAX_FILE_SIZE_MB = 5;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 @Component({
   selector: 'app-receipt-upload',
@@ -27,7 +30,7 @@ import { ApiService } from '../../services/api.service';
           #fileInput 
           style="display: none;" 
           (change)="onFileSelected($event)" 
-          accept="image/*">
+          accept="image/jpeg,image/png,image/webp">
           
         <div class="drop-content" *ngIf="!isUploading">
           <svg style="width: 48px; height: 48px; margin-bottom: 1rem; color: var(--primary-color);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -35,12 +38,24 @@ import { ApiService } from '../../services/api.service';
           </svg>
           <p>Drag and drop your receipt here</p>
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">or click to browse</p>
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.75rem;">
+            JPEG, PNG, WebP • Max ${MAX_FILE_SIZE_MB}MB
+          </p>
         </div>
         
         <div class="drop-content" *ngIf="isUploading">
           <div class="spinner"></div>
-          <p style="margin-top: 1rem;">Analyzing receipt...</p>
+          <p style="margin-top: 1rem;">Analyzing receipt with AI...</p>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">This may take a few seconds</p>
         </div>
+      </div>
+
+      <!-- Error message -->
+      <div *ngIf="errorMessage" class="error-banner">
+        <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+        </svg>
+        <span>{{ errorMessage }}</span>
       </div>
     </div>
   `,
@@ -78,11 +93,29 @@ import { ApiService } from '../../services/api.service';
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+    .error-banner {
+      margin-top: 1.5rem;
+      padding: 1rem 1.25rem;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: var(--radius-md);
+      color: var(--danger-color);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.9rem;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   `]
 })
 export class ReceiptUpload {
   isDragging = false;
   isUploading = false;
+  errorMessage: string | null = null;
   
   private api = inject(ApiService);
   private router = inject(Router);
@@ -114,8 +147,26 @@ export class ReceiptUpload {
   }
 
   handleFile(file: File) {
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file.');
+    this.errorMessage = null;
+
+    // --- Client-side security validation ---
+    
+    // 1. Check file type
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      this.errorMessage = `Invalid file type "${file.type || 'unknown'}". Please upload a JPEG, PNG, or WebP image.`;
+      return;
+    }
+
+    // 2. Check file size
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      this.errorMessage = `File too large (${sizeMB} MB). Maximum allowed size is ${MAX_FILE_SIZE_MB} MB.`;
+      return;
+    }
+
+    // 3. Check if file is empty
+    if (file.size === 0) {
+      this.errorMessage = 'The selected file is empty.';
       return;
     }
     
@@ -129,7 +180,15 @@ export class ReceiptUpload {
       error: (err) => {
         this.isUploading = false;
         console.error('Upload failed', err);
-        alert('Failed to process receipt.');
+        
+        // Show specific error from backend if available
+        if (err.error?.detail) {
+          this.errorMessage = err.error.detail;
+        } else if (err.status === 429) {
+          this.errorMessage = 'Too many uploads. Please wait a moment and try again.';
+        } else {
+          this.errorMessage = 'Failed to process receipt. Please try again.';
+        }
       }
     });
   }
