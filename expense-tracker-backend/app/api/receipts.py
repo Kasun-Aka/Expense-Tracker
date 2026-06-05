@@ -1,6 +1,7 @@
 import json
 import logging
-from datetime import datetime
+import urllib.request
+from datetime import datetime, date
 from pathlib import Path
 from typing import List
 
@@ -15,7 +16,8 @@ from app.core.security import (
 from app.services.gemini_service import analyze_receipt
 from app.db.database import get_db
 from app.db.receipt import Receipt as DBReceipt
-from app.models.receipt import ReceiptOut, ReceiptUploadResponse
+from app.db.exchange_rate import ExchangeRate
+from app.models.receipt import ReceiptOut, ReceiptUploadResponse, ReceiptConfirm
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,7 @@ async def upload_receipt(
         # Still save the receipt even if AI fails, user can fill in manually
         new_receipt = DBReceipt(
             filename=safe_filename,
-            ocr_text="AI analysis failed: " + str(e),
+            ai_raw_response="AI analysis failed: " + str(e),
             processed=False,
         )
         db.add(new_receipt)
@@ -122,7 +124,6 @@ async def upload_receipt(
         confidence_score=gemini_result.confidence_score,
         line_items=line_items_text,
         ai_raw_response=raw_response_json,
-        ocr_text=None,  # No longer using raw OCR text
         processed=False,  # Not yet confirmed by user
     )
     db.add(new_receipt)
@@ -156,3 +157,73 @@ def get_receipt(receipt_id: int, db: Session = Depends(get_db)):
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
     return receipt
+
+@router.put("/{receipt_id}/confirm", response_model=ReceiptOut)
+def confirm_receipt(receipt_id: int, confirm_data: ReceiptConfirm, db: Session = Depends(get_db)):
+    """Confirm a receipt, fetch exchange rate if needed, and mark as processed."""
+    receipt = db.query(DBReceipt).filter(DBReceipt.id == receipt_id).first()
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+
+    receipt.merchant = confirm_data.merchant
+    receipt.amount = confirm_data.amount
+    receipt.receipt_date = confirm_data.receipt_date
+    receipt.category = confirm_data.category
+    receipt.line_items = confirm_data.line_items
+    receipt.currency = confirm_data.currency
+
+    # Calculate LKR amount
+    if confirm_data.currency == "LKR":
+        receipt.amount_LKR = confirm_data.amount
+    else:
+        today = date.today()
+        # Check if rate exists for today
+        rate_record = db.query(ExchangeRate).filter(
+            ExchangeRate.date == today,
+            ExchangeRate.currency == confirm_data.currency
+        ).first()
+
+        if rate_record:
+            rate = float(rate_record.rate_to_lkr)
+        else:
+            # Fetch from API
+            try:
+                url = f"https://open.er-api.com/v6/latest/{confirm_data.currency}"
+                with urllib.request.urlopen(url) as response:
+                    data = json.loads(response.read().decode())
+                    rate = data["rates"]["LKR"]
+                    
+                # Save to db
+                new_rate = ExchangeRate(
+                    date=today,
+                    currency=confirm_data.currency,
+                    rate_to_lkr=rate
+                )
+                db.add(new_rate)
+            except Exception as e:
+                logger.error("Failed to fetch exchange rate: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to fetch exchange rate")
+
+        receipt.amount_LKR = confirm_data.amount * rate
+
+    receipt.processed = True
+    db.commit()
+    db.refresh(receipt)
+    return receipt
+
+@router.put("/{receipt_id}", response_model=ReceiptOut)
+def update_receipt(receipt_id: int, update_data: ReceiptConfirm, db: Session = Depends(get_db)):
+    """Update an existing confirmed receipt."""
+    # This logic is identical to confirm_receipt since it updates all user-facing fields
+    return confirm_receipt(receipt_id, update_data, db)
+
+@router.delete("/{receipt_id}")
+def delete_receipt(receipt_id: int, db: Session = Depends(get_db)):
+    """Hard delete a receipt."""
+    receipt = db.query(DBReceipt).filter(DBReceipt.id == receipt_id).first()
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    
+    db.delete(receipt)
+    db.commit()
+    return {"message": "Receipt deleted successfully"}

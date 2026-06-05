@@ -3,8 +3,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.health import router as health_router
 from app.api.receipts import router as receipts_router
-from app.api.categories import router as categories_router
-from app.api.expenses import router as expenses_router
 
 
 # Configure logging
@@ -30,6 +28,3 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(receipts_router)
-app.include_router(categories_router)
-app.include_router(expenses_router)
-

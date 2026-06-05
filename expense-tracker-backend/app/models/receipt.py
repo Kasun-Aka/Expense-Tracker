@@ -21,10 +21,10 @@ class ReceiptOut(BaseModel):
     amount: Optional[float] = None
     receipt_date: Optional[date] = None
     currency: Optional[str] = "LKR"
+    amount_LKR: Optional[float] = None
     category: Optional[str] = None
     confidence_score: Optional[float] = None
-    line_items: Optional[str] = None  # JSON string
-    ocr_text: Optional[str] = None
+    line_items: Optional[str] = None
     processed: bool
     created_at: datetime
 
@@ -42,4 +42,13 @@ class ReceiptUploadResponse(BaseModel):
     currency: str = "LKR"
     category: Optional[str] = None
     confidence_score: Optional[float] = None
-    line_items: Optional[str] = None  # Newline-separated items text
+    line_items: Optional[str] = None
+
+
+class ReceiptConfirm(BaseModel):
+    merchant: str
+    amount: float
+    receipt_date: date
+    category: str
+    line_items: Optional[str] = None
+    currency: str

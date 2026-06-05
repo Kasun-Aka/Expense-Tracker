@@ -2,24 +2,24 @@ import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule, Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ApiService, ReceiptUploadResponse } from '../../services/api.service';
+import { ApiService } from '../../services/api.service';
 
 @Component({
   selector: 'app-expense-form',
   imports: [CommonModule, ReactiveFormsModule],
   template: `
     <div class="glass-card form-container">
-      <h2 style="margin-bottom: 0.5rem;">Verify Expense Data</h2>
+      <h2 style="margin-bottom: 0.5rem;">{{ isEditMode ? 'Edit Expense' : 'Verify Expense Data' }}</h2>
       <p style="color: var(--text-muted); margin-bottom: 2rem; font-size: 0.9rem;">
-        Review and confirm the AI-extracted data below.
+        {{ isEditMode ? 'Modify and save the expense details.' : 'Review and confirm the AI-extracted data below.' }}
       </p>
       
       <div *ngIf="!receiptData" style="text-align: center; color: var(--danger-color);">
         No receipt data found. Please upload a receipt first.
       </div>
 
-      <!-- AI Confidence Badge -->
-      <div *ngIf="receiptData && receiptData.confidence_score !== null" class="confidence-bar">
+      <!-- AI Confidence Badge (Only for verification, hide in edit mode since confidence score is not relevant post-confirmation) -->
+      <div *ngIf="receiptData && receiptData.confidence_score !== null && !isEditMode" class="confidence-bar">
         <div class="confidence-label">
           <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
@@ -62,28 +62,29 @@ import { ApiService, ReceiptUploadResponse } from '../../services/api.service';
               <option value="EUR">EUR</option>
               <option value="GBP">GBP</option>
               <option value="INR">INR</option>
+              <option value="AUD">AUD</option>
             </select>
           </div>
         </div>
         
         <div class="form-group">
           <label class="form-label">Date</label>
-          <input type="date" class="form-input" formControlName="date">
+          <input type="date" class="form-input" formControlName="receipt_date">
         </div>
         
         <div class="form-group">
           <label class="form-label">Category</label>
-          <select class="form-input" formControlName="category_id">
-            <option value="">Select a category</option>
-            <option *ngFor="let cat of categories" [value]="cat.id">{{ cat.name }}</option>
-          </select>
-          <span *ngIf="receiptData?.category" style="font-size: 0.8rem; color: var(--primary-color); margin-top: 0.25rem;">
+          <input type="text" list="category_suggestions" class="form-input" formControlName="category" placeholder="Enter or select category">
+          <datalist id="category_suggestions">
+            <option *ngFor="let cat of suggestedCategories" [value]="cat"></option>
+          </datalist>
+          <span *ngIf="receiptData.category && !isEditMode" style="font-size: 0.8rem; color: var(--primary-color); margin-top: 0.25rem;">
             AI suggested: {{ receiptData.category }}
           </span>
         </div>
 
         <!-- Line Items Display -->
-        <div class="form-group" *ngIf="receiptData?.line_items">
+        <div class="form-group" *ngIf="receiptData.line_items">
           <label class="form-label">Extracted Items</label>
           <textarea 
             class="form-input line-items-area" 
@@ -99,7 +100,7 @@ import { ApiService, ReceiptUploadResponse } from '../../services/api.service';
         <div style="margin-top: 2rem; display: flex; gap: 1rem;">
           <button type="submit" class="btn-primary" [disabled]="!expenseForm.valid || isSubmitting">
             <span *ngIf="isSubmitting" class="spinner-small"></span>
-            Save Expense
+            {{ isEditMode ? 'Update Expense' : 'Confirm Data' }}
           </button>
           <button type="button" class="btn-primary" style="background-color: transparent; border: 1px solid var(--glass-border);" (click)="cancel()">
             Cancel
@@ -186,88 +187,77 @@ export class ExpenseForm implements OnInit {
   private fb = inject(FormBuilder);
   private location = inject(Location);
   
-  receiptData: ReceiptUploadResponse | null = null;
-  categories: any[] = [];
+  receiptData: any = null; // Can be ReceiptUploadResponse or ReceiptOut
+  suggestedCategories: string[] = ['Groceries', 'Transport', 'Dining', 'Entertainment', 'Utilities', 'Shopping', 'Health', 'Travel'];
   isSubmitting = false;
+  isEditMode = false;
   
   expenseForm: FormGroup = this.fb.group({
-    receipt_id: ['', Validators.required],
     merchant: ['', Validators.required],
     amount: ['', [Validators.required, Validators.min(0)]],
     currency: ['LKR', Validators.required],
-    date: ['', Validators.required],
-    category_id: [''],
+    receipt_date: ['', Validators.required],
+    category: ['', Validators.required],
     line_items: ['']
   });
 
   ngOnInit() {
-    // Get data passed from the upload component
+    // Get data passed from the upload component or annual expenses page
     const state = this.location.getState() as any;
     this.receiptData = state?.data;
     
     if (this.receiptData) {
+      this.isEditMode = this.receiptData.processed === true;
       this.populateForm(this.receiptData);
     }
-    
-    this.loadCategories();
-  }
-  
-  loadCategories() {
-    this.api.getCategories().subscribe({
-      next: (data) => this.categories = data,
-      error: (err) => console.error('Failed to load categories', err)
-    });
   }
 
-  populateForm(data: ReceiptUploadResponse) {
-    // Use AI-extracted date, fallback to today
-    let dateStr = data.date || '';
+  populateForm(data: any) {
+    // Use AI-extracted date or receipt date, fallback to today
+    let dateStr = data.date || data.receipt_date || '';
     if (!dateStr) {
       dateStr = new Date().toISOString().split('T')[0];
     }
 
     this.expenseForm.patchValue({
-      receipt_id: data.receipt_id,
       merchant: data.merchant || '',
       amount: data.amount || 0,
       currency: data.currency || 'LKR',
-      date: dateStr,
+      receipt_date: dateStr,
+      category: data.category || '',
       line_items: data.line_items || ''
     });
   }
 
   onSubmit() {
-    if (this.expenseForm.valid) {
+    if (this.expenseForm.valid && this.receiptData) {
       this.isSubmitting = true;
       const formValue = { ...this.expenseForm.value };
+      const id = this.receiptData.receipt_id || this.receiptData.id;
       
-      // Convert category_id to number if it exists
-      if (formValue.category_id) {
-        formValue.category_id = Number(formValue.category_id);
-      } else {
-        formValue.category_id = null;
-      }
+      const request$ = this.isEditMode
+        ? this.api.updateReceipt(id, formValue)
+        : this.api.confirmReceipt(id, formValue);
 
-      // Remove line_items from expense payload (it's for display only)
-      delete formValue.line_items;
-      // Remove currency from expense payload (stored on receipt)
-      delete formValue.currency;
-      
-      this.api.saveExpense(formValue).subscribe({
+      request$.subscribe({
         next: () => {
           this.isSubmitting = false;
-          this.router.navigate(['/dashboard']);
+          this.router.navigate([this.isEditMode ? '/annual' : '/dashboard']);
         },
         error: (err) => {
           this.isSubmitting = false;
-          console.error('Failed to save expense', err);
-          alert('Error saving expense.');
+          console.error(this.isEditMode ? 'Failed to update receipt' : 'Failed to confirm receipt', err);
+          alert('Error saving data.');
         }
       });
     }
   }
 
   cancel() {
-    this.router.navigate(['/upload']);
+    if (this.isEditMode) {
+      this.router.navigate(['/annual']);
+    } else {
+      this.router.navigate(['/upload']);
+    }
   }
 }

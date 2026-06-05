@@ -7,55 +7,72 @@ import { ApiService, ReceiptOut } from '../../services/api.service';
   imports: [CommonModule],
   template: `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-      <h2>Monthly Expenses</h2>
-      <button class="btn-primary" (click)="exportCSV()" [disabled]="expenses.length === 0">
+      <h2>Annual Expenses ({{ currentYear }})</h2>
+      <button class="btn-primary" (click)="exportCSV()" [disabled]="currentYearReceipts.length === 0">
         Export CSV
       </button>
     </div>
 
     <div class="glass-card" style="margin-bottom: 2rem;">
-      <h3 style="color: var(--text-muted); margin-bottom: 0.5rem; font-weight: 500;">Total Spending</h3>
+      <h3 style="color: var(--text-muted); margin-bottom: 0.5rem; font-weight: 500;">Total Spending (LKR)</h3>
       <h1 class="text-gradient" style="font-size: 3rem; font-weight: 700;">
         LKR {{ totalAmount | number:'1.2-2' }}
       </h1>
     </div>
 
-    <!-- Expenses Table -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+      <h2>Monthly Expenses ({{ currentMonthName }})</h2>
+      <h3 style="color: var(--success-color); font-weight: 700; margin: 0;">
+        LKR {{ currentMonthTotal | number:'1.2-2' }}
+      </h3>
+    </div>
+
+    <!-- Expenses Table (Confirmed Receipts) -->
     <div class="glass-card" style="padding: 0; overflow: hidden; margin-bottom: 2rem;">
       <table class="table" style="width: 100%; border-collapse: collapse;">
         <thead>
           <tr style="background: rgba(0,0,0,0.2); text-align: left;">
             <th style="padding: 1rem 1.5rem; color: var(--text-muted); font-weight: 500;">Date</th>
             <th style="padding: 1rem 1.5rem; color: var(--text-muted); font-weight: 500;">Merchant</th>
-            <th style="padding: 1rem 1.5rem; color: var(--text-muted); font-weight: 500;">Amount</th>
+            <th style="padding: 1rem 1.5rem; color: var(--text-muted); font-weight: 500;">Category</th>
+            <th style="padding: 1rem 1.5rem; color: var(--text-muted); font-weight: 500;">Original Amount</th>
+            <th style="padding: 1rem 1.5rem; color: var(--text-muted); font-weight: 500;">Amount (LKR)</th>
           </tr>
         </thead>
         <tbody>
-          <tr *ngIf="expenses.length === 0">
-            <td colspan="3" style="padding: 2rem; text-align: center; color: var(--text-muted);">
-              No expenses recorded yet.
+          <tr *ngIf="currentMonthReceipts.length === 0">
+            <td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-muted);">
+              No confirmed expenses for this month.
             </td>
           </tr>
-          <tr *ngFor="let expense of expenses" style="border-top: 1px solid var(--glass-border);">
-            <td style="padding: 1rem 1.5rem;">{{ expense.date }}</td>
-            <td style="padding: 1rem 1.5rem; font-weight: 500;">{{ expense.merchant }}</td>
-            <td style="padding: 1rem 1.5rem; color: var(--success-color); font-weight: 600;">\${{ expense.amount | number:'1.2-2' }}</td>
+          <tr *ngFor="let receipt of currentMonthReceipts" style="border-top: 1px solid var(--glass-border);">
+            <td style="padding: 1rem 1.5rem;">{{ receipt.receipt_date }}</td>
+            <td style="padding: 1rem 1.5rem; font-weight: 500;">{{ receipt.merchant }}</td>
+            <td style="padding: 1rem 1.5rem;">
+              <span class="category-badge">{{ receipt.category || 'N/A' }}</span>
+            </td>
+            <td style="padding: 1rem 1.5rem; color: var(--text-muted);">
+              {{ receipt.currency }} {{ receipt.amount | number:'1.2-2' }}
+            </td>
+            <td style="padding: 1rem 1.5rem; color: var(--success-color); font-weight: 600;">
+              LKR {{ receipt.amount_LKR | number:'1.2-2' }}
+            </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- Recent Receipts Section -->
+    <!-- Pending Receipts Section -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-      <h2>Recent Receipts</h2>
+      <h2>Pending Receipts</h2>
     </div>
 
-    <div *ngIf="receipts.length === 0" class="glass-card" style="text-align: center; color: var(--text-muted);">
-      No receipts uploaded yet.
+    <div *ngIf="pendingReceipts.length === 0" class="glass-card" style="text-align: center; color: var(--text-muted);">
+      No pending receipts. You are all caught up!
     </div>
 
     <div class="receipts-grid">
-      <div *ngFor="let receipt of receipts" class="glass-card receipt-card">
+      <div *ngFor="let receipt of pendingReceipts" class="glass-card receipt-card">
         <div class="receipt-header">
           <h3 style="font-size: 1.1rem; font-weight: 600;">{{ receipt.merchant || 'Unknown Merchant' }}</h3>
           <span class="category-badge" *ngIf="receipt.category">{{ receipt.category }}</span>
@@ -73,9 +90,7 @@ import { ApiService, ReceiptOut } from '../../services/api.service';
         </div>
         
         <div class="receipt-status">
-          <span class="status-badge" [class.processed]="receipt.processed" [class.pending]="!receipt.processed">
-            {{ receipt.processed ? 'Confirmed' : 'Pending' }}
-          </span>
+          <span class="status-badge pending">Pending</span>
         </div>
       </div>
     </div>
@@ -168,23 +183,48 @@ import { ApiService, ReceiptOut } from '../../services/api.service';
 export class Dashboard implements OnInit {
   private api = inject(ApiService);
   private cdr = inject(ChangeDetectorRef);
-  expenses: any[] = [];
-  receipts: ReceiptOut[] = [];
+
+  confirmedReceipts: ReceiptOut[] = [];
+  pendingReceipts: ReceiptOut[] = [];
+  currentYearReceipts: ReceiptOut[] = [];
+  currentMonthReceipts: ReceiptOut[] = [];
   totalAmount = 0;
+  currentYear = new Date().getFullYear();
+  currentMonthName = new Date().toLocaleString('default', { month: 'long' });
+  currentMonthTotal = 0;
 
   ngOnInit() {
-    this.api.getExpenses().subscribe({
-      next: (data) => {
-        this.expenses = data;
-        this.totalAmount = data.reduce((sum, item) => sum + Number(item.amount), 0);
-        this.cdr.detectChanges();
-      },
-      error: (err) => console.error('Error fetching expenses', err)
-    });
-
     this.api.getReceipts().subscribe({
       next: (data) => {
-        this.receipts = data;
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth(); // 0-indexed
+
+        this.confirmedReceipts = data.filter(r => r.processed);
+        this.pendingReceipts = data.filter(r => !r.processed);
+
+        // Filter for current year
+        this.currentYearReceipts = this.confirmedReceipts.filter(r => {
+          if (!r.receipt_date) return false;
+          const parts = r.receipt_date.split('-');
+          if (parts.length < 3) return false;
+          const year = parseInt(parts[0], 10);
+          return year === currentYear;
+        });
+
+        // Filter for current month of the current year
+        this.currentMonthReceipts = this.confirmedReceipts.filter(r => {
+          if (!r.receipt_date) return false;
+          const parts = r.receipt_date.split('-');
+          if (parts.length < 3) return false;
+          const year = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          return year === currentYear && month === currentMonth;
+        });
+
+        this.currentMonthTotal = this.currentMonthReceipts.reduce((sum, item) => sum + Number(item.amount_LKR || 0), 0);
+
+        this.totalAmount = this.currentYearReceipts.reduce((sum, item) => sum + Number(item.amount_LKR || 0), 0);
         this.cdr.detectChanges();
       },
       error: (err) => console.error('Error fetching receipts', err)
@@ -192,10 +232,17 @@ export class Dashboard implements OnInit {
   }
 
   exportCSV() {
-    if (this.expenses.length === 0) return;
+    if (this.currentYearReceipts.length === 0) return;
 
-    const headers = ['Date', 'Merchant', 'Amount'];
-    const rows = this.expenses.map(e => [e.date, e.merchant, e.amount]);
+    const headers = ['Date', 'Merchant', 'Category', 'Original Amount', 'Currency', 'Amount LKR'];
+    const rows = this.currentYearReceipts.map(e => [
+      e.receipt_date,
+      e.merchant,
+      e.category,
+      e.amount,
+      e.currency,
+      e.amount_LKR
+    ]);
 
     const csvContent = "data:text/csv;charset=utf-8,"
       + headers.join(",") + "\n"
@@ -204,7 +251,7 @@ export class Dashboard implements OnInit {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "expenses.csv");
+    link.setAttribute("download", `expenses_${this.currentYear}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

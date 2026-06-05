@@ -9,8 +9,9 @@ export interface ReceiptUploadResponse {
   amount: number | null;
   date: string | null;
   currency: string;
-  category: string | null;
+  amount_LKR: number | null;
   confidence_score: number | null;
+  category: string | null;
   line_items: string | null;
 }
 
@@ -21,6 +22,7 @@ export interface ReceiptOut {
   amount: number | null;
   receipt_date: string | null;
   currency: string | null;
+  amount_LKR: number | null;
   category: string | null;
   confidence_score: number | null;
   line_items: string | null;
@@ -45,15 +47,15 @@ export class ApiService {
     return this.http.get<ReceiptOut[]>(`${this.baseUrl}/receipts`);
   }
 
-  getExpenses(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.baseUrl}/expenses`);
+  confirmReceipt(id: number, data: any): Observable<ReceiptOut> {
+    return this.http.put<ReceiptOut>(`${this.baseUrl}/receipts/${id}/confirm`, data);
   }
 
-  saveExpense(data: any): Observable<any> {
-    return this.http.post(`${this.baseUrl}/expenses`, data);
+  updateReceipt(id: number, data: any): Observable<ReceiptOut> {
+    return this.http.put<ReceiptOut>(`${this.baseUrl}/receipts/${id}`, data);
   }
 
-  getCategories(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.baseUrl}/categories`);
+  deleteReceipt(id: number): Observable<any> {
+    return this.http.delete<any>(`${this.baseUrl}/receipts/${id}`);
   }
 }
