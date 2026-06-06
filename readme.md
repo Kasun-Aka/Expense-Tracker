@@ -98,5 +98,4 @@ The project's technology stack has evolved from the original concept and current
 4. **Currency Conversion**: If the receipt is not in LKR, the backend automatically fetches the latest exchange rate and calculates the LKR equivalent.
 5. **Storage**: Upon confirmation, the expense is saved to the SQL Server database.
 
----
-_🚧 This project is actively under development._
+
