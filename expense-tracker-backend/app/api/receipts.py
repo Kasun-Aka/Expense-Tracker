@@ -143,6 +143,71 @@ async def upload_receipt(
     )
 
 
+@router.post("/manual", response_model=ReceiptOut)
+def create_manual_receipt(
+    request: Request,
+    manual_data: ReceiptConfirm,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a manual receipt entry without AI processing.
+    """
+    # --- Security: Rate Limiting ---
+    client_ip = upload_rate_limiter.get_client_ip(request)
+    upload_rate_limiter.check(client_ip)
+
+    new_receipt = DBReceipt(
+        filename="manual_entry",
+        merchant=manual_data.merchant,
+        amount=manual_data.amount,
+        receipt_date=manual_data.receipt_date,
+        currency=manual_data.currency,
+        category=manual_data.category,
+        line_items=manual_data.line_items,
+        processed=True,
+    )
+
+    # Calculate LKR amount
+    if manual_data.currency == "LKR":
+        new_receipt.amount_LKR = manual_data.amount
+    else:
+        today = date.today()
+        # Check if rate exists for today
+        rate_record = db.query(ExchangeRate).filter(
+            ExchangeRate.date == today,
+            ExchangeRate.currency == manual_data.currency
+        ).first()
+
+        if rate_record:
+            rate = float(rate_record.rate_to_lkr)
+        else:
+            # Fetch from API
+            try:
+                url = f"https://open.er-api.com/v6/latest/{manual_data.currency}"
+                with urllib.request.urlopen(url) as response:
+                    data = json.loads(response.read().decode())
+                    rate = data["rates"]["LKR"]
+                    
+                # Save to db
+                new_rate = ExchangeRate(
+                    date=today,
+                    currency=manual_data.currency,
+                    rate_to_lkr=rate
+                )
+                db.add(new_rate)
+            except Exception as e:
+                logger.error("Failed to fetch exchange rate: %s", str(e))
+                raise HTTPException(status_code=500, detail="Failed to fetch exchange rate")
+
+        new_receipt.amount_LKR = manual_data.amount * rate
+
+    db.add(new_receipt)
+    db.commit()
+    db.refresh(new_receipt)
+    return new_receipt
+
+
+
 @router.get("/", response_model=List[ReceiptOut])
 def get_receipts(db: Session = Depends(get_db)):
     """Get all receipts, ordered by most recent first."""
@@ -159,8 +224,12 @@ def get_receipt(receipt_id: int, db: Session = Depends(get_db)):
     return receipt
 
 @router.put("/{receipt_id}/confirm", response_model=ReceiptOut)
-def confirm_receipt(receipt_id: int, confirm_data: ReceiptConfirm, db: Session = Depends(get_db)):
+def confirm_receipt(receipt_id: int, confirm_data: ReceiptConfirm, request: Request, db: Session = Depends(get_db)):
     """Confirm a receipt, fetch exchange rate if needed, and mark as processed."""
+    # --- Security: Rate Limiting ---
+    client_ip = upload_rate_limiter.get_client_ip(request)
+    upload_rate_limiter.check(client_ip)
+
     receipt = db.query(DBReceipt).filter(DBReceipt.id == receipt_id).first()
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
@@ -212,10 +281,10 @@ def confirm_receipt(receipt_id: int, confirm_data: ReceiptConfirm, db: Session =
     return receipt
 
 @router.put("/{receipt_id}", response_model=ReceiptOut)
-def update_receipt(receipt_id: int, update_data: ReceiptConfirm, db: Session = Depends(get_db)):
+def update_receipt(receipt_id: int, update_data: ReceiptConfirm, request: Request, db: Session = Depends(get_db)):
     """Update an existing confirmed receipt."""
     # This logic is identical to confirm_receipt since it updates all user-facing fields
-    return confirm_receipt(receipt_id, update_data, db)
+    return confirm_receipt(receipt_id, update_data, request, db)
 
 @router.delete("/{receipt_id}")
 def delete_receipt(receipt_id: int, db: Session = Depends(get_db)):

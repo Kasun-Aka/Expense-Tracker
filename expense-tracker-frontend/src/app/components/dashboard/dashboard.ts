@@ -45,7 +45,9 @@ import { ApiService, ReceiptOut } from '../../services/api.service';
               No confirmed expenses for this month.
             </td>
           </tr>
-          <tr *ngFor="let receipt of currentMonthReceipts" style="border-top: 1px solid var(--glass-border);">
+          <tr *ngFor="let receipt of currentMonthReceipts" 
+              style="border-top: 1px solid var(--glass-border); cursor: pointer;"
+              (click)="viewReceiptDetails(receipt)">
             <td style="padding: 1rem 1.5rem;">{{ receipt.receipt_date }}</td>
             <td style="padding: 1rem 1.5rem; font-weight: 500;">{{ receipt.merchant }}</td>
             <td style="padding: 1rem 1.5rem;">
@@ -91,6 +93,46 @@ import { ApiService, ReceiptOut } from '../../services/api.service';
         
         <div class="receipt-status">
           <span class="status-badge pending">Pending</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div *ngIf="selectedReceipt" class="modal-overlay" (click)="closeModal()">
+      <div class="glass-card modal-content" (click)="$event.stopPropagation()">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+          <h2 style="margin: 0;">Expense Details</h2>
+          <button style="background: none; border: none; color: var(--text-main); font-size: 1.5rem; cursor: pointer;" (click)="closeModal()">&times;</button>
+        </div>
+        
+        <div class="detail-grid">
+          <div class="detail-item">
+            <span class="detail-label">Merchant</span>
+            <span class="detail-value" style="font-size: 1.1rem;">{{ selectedReceipt.merchant }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Date</span>
+            <span class="detail-value">{{ selectedReceipt.receipt_date }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Category</span>
+            <span class="category-badge" style="display: inline-block; width: fit-content; margin-top: 0.25rem;">{{ selectedReceipt.category || 'N/A' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Original Amount</span>
+            <span class="detail-value">{{ selectedReceipt.currency }} {{ selectedReceipt.amount | number:'1.2-2' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Amount (LKR)</span>
+            <span class="detail-value amount">LKR {{ selectedReceipt.amount_LKR | number:'1.2-2' }}</span>
+          </div>
+        </div>
+
+        <div *ngIf="selectedReceipt.line_items" style="margin-top: 1.5rem;">
+          <span class="detail-label">Line Items</span>
+          <div class="line-items-box">
+            <pre style="margin: 0; font-family: 'Inter', monospace; white-space: pre-wrap;">{{ selectedReceipt.line_items }}</pre>
+          </div>
         </div>
       </div>
     </div>
@@ -178,6 +220,39 @@ import { ApiService, ReceiptOut } from '../../services/api.service';
       color: #f59e0b;
       border: 1px solid rgba(245, 158, 11, 0.3);
     }
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      width: 90%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    .detail-item {
+      display: flex;
+      flex-direction: column;
+    }
+    .line-items-box {
+      margin-top: 0.5rem;
+      padding: 1rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--glass-border);
+      font-size: 0.9rem;
+    }
   `]
 })
 export class Dashboard implements OnInit {
@@ -192,6 +267,8 @@ export class Dashboard implements OnInit {
   currentYear = new Date().getFullYear();
   currentMonthName = new Date().toLocaleString('default', { month: 'long' });
   currentMonthTotal = 0;
+  
+  selectedReceipt: ReceiptOut | null = null;
 
   ngOnInit() {
     this.api.getReceipts().subscribe({
@@ -255,5 +332,13 @@ export class Dashboard implements OnInit {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  viewReceiptDetails(receipt: ReceiptOut) {
+    this.selectedReceipt = receipt;
+  }
+
+  closeModal() {
+    this.selectedReceipt = null;
   }
 }

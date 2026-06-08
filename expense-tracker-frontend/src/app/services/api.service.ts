@@ -58,4 +58,8 @@ export class ApiService {
   deleteReceipt(id: number): Observable<any> {
     return this.http.delete<any>(`${this.baseUrl}/receipts/${id}`);
   }
+
+  addManualReceipt(data: any): Observable<ReceiptOut> {
+    return this.http.post<ReceiptOut>(`${this.baseUrl}/receipts/manual`, data);
+  }
 }

@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ReceiptLineItemOut(BaseModel):
@@ -51,4 +51,4 @@ class ReceiptConfirm(BaseModel):
     receipt_date: date
     category: str
     line_items: Optional[str] = None
-    currency: str
+    currency: str = Field(..., min_length=3, max_length=3, pattern="^[A-Za-z]{3}$")

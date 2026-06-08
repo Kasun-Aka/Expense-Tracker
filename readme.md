@@ -1,4 +1,4 @@
-# Expense Tracker 💸
+# AI Expense Tracker 💸
 
 A personal expense tracking system that lets users upload receipts and automatically extracts expense data using AI. The project is designed to reduce manual expense entry, provide monthly spending insights, and leverage modern web and AI technologies.
 
